@@ -1,0 +1,227 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Enterprise Healthcare Disaster Recovery System - PIPEDA Compliant'
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: 'healthcare-dr'
+    Description: 'Project name for resource naming'
+  
+  Environment:
+    Type: String
+    Default: 'production'
+    AllowedValues: ['development', 'staging', 'production']
+    Description: 'Environment designation'
+
+Resources:
+  # Primary S3 Bucket for Healthcare Data
+  PrimaryHealthcareBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub '${ProjectName}-primary-${AWS::AccountId}-${AWS::Region}'
+      VersioningConfiguration:
+        Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      NotificationConfiguration:
+        LambdaConfigurations:
+          - Event: s3:ObjectCreated:*
+            Function: !GetAtt HealthcareDataProcessor.Arn
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: prefix
+                    Value: patient-data/
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Compliance
+          Value: PIPEDA
+
+  # DynamoDB Table for Healthcare Records
+  HealthcarePatientRecords:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub '${ProjectName}-patient-records'
+      BillingMode: ON_DEMAND
+      AttributeDefinitions:
+        - AttributeName: PatientID
+          AttributeType: S
+        - AttributeName: RecordTimestamp
+          AttributeType: S
+      KeySchema:
+        - AttributeName: PatientID
+          KeyType: HASH
+        - AttributeName: RecordTimestamp
+          KeyType: RANGE
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+      StreamSpecification:
+        StreamViewType: NEW_AND_OLD_IMAGES
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Compliance
+          Value: PIPEDA
+
+  # IAM Role for Lambda Functions
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ProjectName}-lambda-execution-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: HealthcareDataAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:Query
+                  - dynamodb:Scan
+                Resource: !GetAtt HealthcarePatientRecords.Arn
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:DeleteObject
+                Resource: !Sub '${PrimaryHealthcareBucket}/*'
+              - Effect: Allow
+                Action:
+                  - s3:ListBucket
+                Resource: !Ref PrimaryHealthcareBucket
+              - Effect: Allow
+                Action:
+                  - cloudwatch:PutMetricData
+                Resource: '*'
+
+  # Healthcare Data Processor Lambda
+  HealthcareDataProcessor:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${ProjectName}-data-processor'
+      Runtime: python3.11
+      Handler: lambda_function.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 30
+      MemorySize: 256
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref HealthcarePatientRecords
+          BACKUP_BUCKET: !Ref PrimaryHealthcareBucket
+          PROJECT_NAME: !Ref ProjectName
+      Code:
+        ZipFile: |
+          import json
+          def lambda_handler(event, context):
+              return {
+                  'statusCode': 200,
+                  'body': json.dumps('Healthcare Data Processor placeholder - replace with actual code')
+              }
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  # S3 Invoke Permission for Lambda
+  S3InvokeLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref HealthcareDataProcessor
+      Action: lambda:InvokeFunction
+      Principal: s3.amazonaws.com
+      SourceArn: !GetAtt PrimaryHealthcareBucket.Arn
+
+  # CloudWatch Dashboard
+  HealthcareDashboard:
+    Type: AWS::CloudWatch::Dashboard
+    Properties:
+      DashboardName: !Sub '${ProjectName}-monitoring'
+      DashboardBody: !Sub |
+        {
+          "widgets": [
+            {
+              "type": "metric",
+              "x": 0,
+              "y": 0,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "metrics": [
+                  ["HealthcareProcessing", "RecordsProcessed", "Status", "SUCCESS"],
+                  [".", ".", ".", "ERROR"]
+                ],
+                "period": 300,
+                "stat": "Sum",
+                "region": "${AWS::Region}",
+                "title": "Healthcare Records Processed"
+              }
+            },
+            {
+              "type": "metric",
+              "x": 12,
+              "y": 0,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "metrics": [
+                  ["HealthcareCompliance", "ComplianceScore"],
+                  [".", "ViolationsFound"]
+                ],
+                "period": 300,
+                "stat": "Average",
+                "region": "${AWS::Region}",
+                "title": "PIPEDA Compliance Metrics"
+              }
+            }
+          ]
+        }
+
+Outputs:
+  PrimaryBucketName:
+    Description: 'Primary healthcare data bucket'
+    Value: !Ref PrimaryHealthcareBucket
+    Export:
+      Name: !Sub '${AWS::StackName}-primary-bucket'
+  
+  DynamoDBTableName:
+    Description: 'Healthcare patient records table'
+    Value: !Ref HealthcarePatientRecords
+    Export:
+      Name: !Sub '${AWS::StackName}-dynamodb-table'
+  
+  LambdaFunctionArn:
+    Description: 'Healthcare data processor Lambda ARN'
+    Value: !GetAtt HealthcareDataProcessor.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-lambda-arn'
+  
+  DashboardURL:
+    Description: 'CloudWatch Dashboard URL'
+    Value: !Sub 'https://${AWS::Region}.console.aws.amazon.com/cloudwatch/home?region=${AWS::Region}#dashboards:name=${ProjectName}-monitoring'

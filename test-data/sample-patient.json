@@ -1,0 +1,36 @@
+{
+  "PatientID": "CDN-HC-TEST-001",
+  "RecordTimestamp": "2025-08-03T16:00:00Z",
+  "RecordType": "Automated Test",
+  "PatientData": {
+    "firstName": "Test",
+    "lastName": "Patient",
+    "dateOfBirth": "1990-01-01",
+    "healthCardNumber": "ENCRYPTED_TEST_001
+  {
+  "PatientID": "CDN-HC-TEST-001",
+  "RecordTimestamp": "2025-08-03T16:00:00Z",
+  "RecordType": "Automated Test",
+  "PatientData": {
+    "firstName": "Test",
+    "lastName": "Patient",
+    "dateOfBirth": "1990-01-01",
+    "healthCardNumber": "ENCRYPTED_TEST_001",
+    "province": "Ontario",
+    "postalCode": "M5H2N2"
+  },
+  "MedicalData": {
+    "bloodType": "O+",
+    "allergies": [],
+    "chronicConditions": [],
+    "lastVisit": "2025-08-03",
+    "emergencyContact": "ENCRYPTED_CONTACT_TEST"
+  },
+  "ComplianceInfo": {
+    "consentGiven": true,
+    "dataRetention": "7years",
+    "encryptionLevel": "AES-256",
+    "pipedaCompliant": true,
+    "auditTrail": "enabled"
+  }
+}
